@@ -15,6 +15,7 @@ node_modules/
 dist/
 coverage/
 backend/.env
+backend/storage/
 backend/__pycache__/
 backend/.pytest_cache/
 frontend/node_modules/

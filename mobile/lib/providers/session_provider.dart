@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../models/profile_data.dart';
@@ -25,6 +26,7 @@ class SessionProvider extends ChangeNotifier {
     if (isAuthenticated) {
       try {
         _profile = await _apiService.obtenerPerfilActual(_token!);
+        await _tryRegisterPushToken();
       } catch (_) {
         _profile = null;
       }
@@ -39,6 +41,7 @@ class SessionProvider extends ChangeNotifier {
       _token = await _apiService.login(email: email, password: password);
       await _storage.write(key: 'token', value: _token);
       _profile = await _apiService.obtenerPerfilActual(_token!);
+      await _tryRegisterPushToken();
     } finally {
       _loading = false;
       notifyListeners();
@@ -50,5 +53,22 @@ class SessionProvider extends ChangeNotifier {
     _profile = null;
     await _storage.delete(key: 'token');
     notifyListeners();
+  }
+
+  Future<void> _tryRegisterPushToken() async {
+    if (_token == null) {
+      return;
+    }
+    try {
+      await FirebaseMessaging.instance.requestPermission();
+      final deviceToken = await FirebaseMessaging.instance.getToken();
+      if (deviceToken == null || deviceToken.isEmpty) {
+        return;
+      }
+      await _apiService.registrarDeviceToken(
+        token: _token!,
+        deviceToken: deviceToken,
+      );
+    } catch (_) {}
   }
 }

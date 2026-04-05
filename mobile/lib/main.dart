@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 
 import 'providers/emergency_provider.dart';
@@ -8,8 +9,11 @@ import 'screens/login_screen.dart';
 import 'services/api_service.dart';
 
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await Firebase.initializeApp();
+  } catch (_) {}
   runApp(const EmergencyApp());
 }
 

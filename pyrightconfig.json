@@ -2,11 +2,20 @@
   "include": [
     "backend"
   ],
+  "pythonVersion": "3.13",
   "executionEnvironments": [
     {
       "root": "backend",
       "extraPaths": [
-        "backend"
+        "backend",
+        "backend/app"
+      ]
+    },
+    {
+      "root": "backend/tests",
+      "extraPaths": [
+        "backend",
+        "backend/app"
       ]
     }
   ]

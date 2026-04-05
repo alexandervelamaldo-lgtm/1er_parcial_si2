@@ -146,8 +146,8 @@ class _DashboardTab extends StatelessWidget {
                   target: LatLng(19.4326, -99.1332),
                   zoom: 11,
                 ),
-                markers: const {
-                  Marker(
+                markers: {
+                  const Marker(
                     markerId: MarkerId('centro'),
                     position: LatLng(19.4326, -99.1332),
                     infoWindow: InfoWindow(title: 'Zona de cobertura'),

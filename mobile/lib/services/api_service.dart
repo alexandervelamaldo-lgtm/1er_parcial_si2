@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -52,8 +53,36 @@ class ApiService {
       Uri.parse('${AppConfig.apiBaseUrl}/solicitudes'),
       headers: _headers(token),
     );
+    _ensureSuccess(response, 'No se pudieron cargar las solicitudes');
     final data = jsonDecode(response.body) as List<dynamic>;
     return data.map((item) => Solicitud.fromJson(item as Map<String, dynamic>)).toList();
+  }
+
+  Future<SolicitudDetalle> obtenerDetalleSolicitud(String token, int solicitudId) async {
+    final response = await http.get(
+      Uri.parse('${AppConfig.apiBaseUrl}/solicitudes/$solicitudId/detalle'),
+      headers: _headers(token),
+    );
+    _ensureSuccess(response, 'No se pudo cargar el detalle de la solicitud');
+    return SolicitudDetalle.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  Future<SolicitudSeguimiento> obtenerSeguimientoSolicitud(String token, int solicitudId) async {
+    final response = await http.get(
+      Uri.parse('${AppConfig.apiBaseUrl}/solicitudes/$solicitudId/seguimiento'),
+      headers: _headers(token),
+    );
+    _ensureSuccess(response, 'No se pudo cargar el seguimiento');
+    return SolicitudSeguimiento.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  Future<SolicitudCandidatos> obtenerCandidatosSolicitud(String token, int solicitudId) async {
+    final response = await http.get(
+      Uri.parse('${AppConfig.apiBaseUrl}/solicitudes/$solicitudId/candidatos'),
+      headers: _headers(token),
+    );
+    _ensureSuccess(response, 'No se pudieron cargar los candidatos');
+    return SolicitudCandidatos.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
   Future<List<NotificationItem>> obtenerNotificaciones(String token) async {
@@ -88,7 +117,7 @@ class ApiService {
     return data.map((item) => TecnicoCercano.fromJson(item as Map<String, dynamic>)).toList();
   }
 
-  Future<void> crearSolicitud({
+  Future<int> crearSolicitud({
     required String token,
     required int clienteId,
     required int vehiculoId,
@@ -117,9 +146,124 @@ class ApiService {
       }),
     );
 
-    if (response.statusCode >= 400) {
-      throw Exception('No se pudo crear la solicitud');
+    _ensureSuccess(response, 'No se pudo crear la solicitud');
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    return data['id'] as int;
+  }
+
+  Future<void> subirEvidenciaTexto({
+    required String token,
+    required int solicitudId,
+    required String contenido,
+  }) async {
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('${AppConfig.apiBaseUrl}/solicitudes/$solicitudId/evidencias/texto'),
+    );
+    request.headers['Authorization'] = 'Bearer $token';
+    request.fields['contenido_texto'] = contenido;
+    final response = await http.Response.fromStream(await request.send());
+    _ensureSuccess(response, 'No se pudo enviar la evidencia textual');
+  }
+
+  Future<void> subirEvidenciaArchivo({
+    required String token,
+    required int solicitudId,
+    required String filePath,
+    int maxReintentos = 2,
+  }) async {
+    final file = File(filePath);
+    if (!file.existsSync()) {
+      throw Exception('No se encontró el archivo seleccionado');
     }
+    final sizeBytes = await file.length();
+    if (sizeBytes > 10 * 1024 * 1024) {
+      throw Exception('El archivo supera el máximo de 10 MB');
+    }
+    Object? lastError;
+    for (var intento = 0; intento < maxReintentos; intento++) {
+      try {
+        final request = http.MultipartRequest(
+          'POST',
+          Uri.parse('${AppConfig.apiBaseUrl}/solicitudes/$solicitudId/evidencias/archivo'),
+        );
+        request.headers['Authorization'] = 'Bearer $token';
+        request.files.add(await http.MultipartFile.fromPath('archivo', file.path));
+        final response = await http.Response.fromStream(await request.send());
+        _ensureSuccess(response, 'No se pudo enviar la evidencia');
+        return;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError ?? Exception('No se pudo enviar la evidencia');
+  }
+
+  Future<void> pagarSolicitud({
+    required String token,
+    required int solicitudId,
+    required double montoTotal,
+    required String metodoPago,
+  }) async {
+    final response = await http.post(
+      Uri.parse('${AppConfig.apiBaseUrl}/solicitudes/$solicitudId/pago'),
+      headers: _headers(token),
+      body: jsonEncode({
+        'monto_total': montoTotal,
+        'metodo_pago': metodoPago,
+      }),
+    );
+    _ensureSuccess(response, 'No se pudo registrar el pago');
+  }
+
+  Future<void> crearDisputa({
+    required String token,
+    required int solicitudId,
+    required String motivo,
+    required String detalle,
+  }) async {
+    final response = await http.post(
+      Uri.parse('${AppConfig.apiBaseUrl}/solicitudes/$solicitudId/disputas'),
+      headers: _headers(token),
+      body: jsonEncode({
+        'motivo': motivo,
+        'detalle': detalle,
+      }),
+    );
+    _ensureSuccess(response, 'No se pudo registrar la disputa');
+  }
+
+  Future<void> responderPropuestaCliente({
+    required String token,
+    required int solicitudId,
+    required bool aprobada,
+    required String observacion,
+  }) async {
+    final response = await http.put(
+      Uri.parse('${AppConfig.apiBaseUrl}/solicitudes/$solicitudId/respuesta-cliente'),
+      headers: _headers(token),
+      body: jsonEncode({
+        'aprobada': aprobada,
+        'observacion': observacion,
+      }),
+    );
+    _ensureSuccess(response, 'No se pudo registrar la respuesta del cliente');
+  }
+
+  Future<void> registrarDeviceToken({
+    required String token,
+    required String deviceToken,
+    String plataforma = 'mobile',
+  }) async {
+    final response = await http.post(
+      Uri.parse('${AppConfig.apiBaseUrl}/notificaciones/device-token'),
+      headers: _headers(token),
+      body: jsonEncode({
+        'token': deviceToken,
+        'plataforma': plataforma,
+      }),
+    );
+    _ensureSuccess(response, 'No se pudo registrar el token del dispositivo');
   }
 
   void _ensureSuccess(http.Response response, String message) {

@@ -51,13 +51,14 @@ class _NearbyTechniciansScreenState extends State<NearbyTechniciansScreen> {
 
   Future<void> _loadNearby() async {
     final token = context.read<SessionProvider>().token;
+    final emergencyProvider = context.read<EmergencyProvider>();
     if (token == null) {
       return;
     }
     setState(() => _loading = true);
     try {
       final position = await Geolocator.getCurrentPosition();
-      await context.read<EmergencyProvider>().cargarTecnicosCercanos(
+      await emergencyProvider.cargarTecnicosCercanos(
             token,
             latitud: position.latitude,
             longitud: position.longitude,

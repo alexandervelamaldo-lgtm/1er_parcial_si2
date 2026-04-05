@@ -1,5 +1,8 @@
 {
-  "python.defaultInterpreterPath": "C:\\Users\\ALEXANDER\\AppData\\Local\\Microsoft\\WindowsApps\\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\\python.exe",
+  "python.defaultInterpreterPath": "C:\\Users\\ALEXANDER\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
   "python.analysis.diagnosticMode": "workspace",
-  "docker.languageserver.diagnostics.enabled": false
+  "python.testing.pytestEnabled": true,
+  "python.testing.pytestArgs": [
+    "backend"
+  ]
 }

@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/emergency_provider.dart';
+import '../providers/session_provider.dart';
+import '../models/solicitud.dart';
+import '../services/api_service.dart';
 
 
 class HistoryScreen extends StatelessWidget {
@@ -24,6 +27,7 @@ class HistoryScreen extends StatelessWidget {
               leading: CircleAvatar(child: Text('${solicitud.id}')),
               title: Text(solicitud.tipoIncidente),
               subtitle: Text(solicitud.descripcion),
+              onTap: () => _showActions(context, solicitud),
               trailing: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.end,
@@ -36,6 +40,219 @@ class HistoryScreen extends StatelessWidget {
           );
         },
       ),
+    );
+  }
+
+  Future<void> _showActions(BuildContext context, Solicitud solicitudBase) async {
+    final amountController = TextEditingController(text: '350.00');
+    final detailController = TextEditingController();
+    final approvalController = TextEditingController(text: 'Apruebo el taller sugerido');
+    final token = context.read<SessionProvider>().token;
+    final emergencyProvider = context.read<EmergencyProvider>();
+    if (token == null) {
+      return;
+    }
+    final api = context.read<ApiService>();
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 16,
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+          ),
+          child: FutureBuilder<({SolicitudDetalle detalle, SolicitudSeguimiento seguimiento, SolicitudCandidatos candidatos})>(
+            future: () async {
+              final detalle = await api.obtenerDetalleSolicitud(token, solicitudBase.id);
+              final seguimiento = await api.obtenerSeguimientoSolicitud(token, solicitudBase.id);
+              final candidatos = await api.obtenerCandidatosSolicitud(token, solicitudBase.id);
+              return (detalle: detalle, seguimiento: seguimiento, candidatos: candidatos);
+            }(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) {
+                return const SizedBox(
+                  height: 240,
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              final detalle = snapshot.data!.detalle;
+              final seguimiento = snapshot.data!.seguimiento;
+              final candidatos = snapshot.data!.candidatos;
+              return SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('Solicitud #${detalle.id}', style: Theme.of(sheetContext).textTheme.titleMedium),
+                    const SizedBox(height: 12),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(detalle.tipoIncidente),
+                      subtitle: Text(detalle.descripcion),
+                      trailing: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(detalle.estado),
+                          Text(detalle.prioridad),
+                        ],
+                      ),
+                    ),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        Chip(label: Text('IA ${((detalle.clasificacionConfianza ?? 0) * 100).toStringAsFixed(0)}%')),
+                        if (detalle.requiereRevisionManual) const Chip(label: Text('Revisión manual')),
+                        if (detalle.etiquetasIa.isNotEmpty) Chip(label: Text(detalle.etiquetasIa.join(', '))),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Seguimiento', style: Theme.of(context).textTheme.titleSmall),
+                            const SizedBox(height: 8),
+                            Text('Taller: ${seguimiento.tallerNombre ?? 'Pendiente'}'),
+                            Text('Técnico: ${seguimiento.tecnicoNombre ?? 'Pendiente'}'),
+                            Text('ETA: ${seguimiento.etaMin?.toString() ?? '--'} min'),
+                            if (seguimiento.mensaje != null) Text(seguimiento.mensaje!),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (detalle.clienteAprobada == false && detalle.tallerId != null) ...[
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: approvalController,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                          labelText: 'Respuesta del cliente a la propuesta',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: () async {
+                                await api.responderPropuestaCliente(
+                                  token: token,
+                                  solicitudId: detalle.id,
+                                  aprobada: true,
+                                  observacion: approvalController.text.trim(),
+                                );
+                                if (!sheetContext.mounted) return;
+                                await emergencyProvider.cargarDatos(token);
+                                if (!sheetContext.mounted) return;
+                                Navigator.of(sheetContext).pop();
+                              },
+                              child: const Text('Aprobar taller'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton.tonal(
+                              onPressed: () async {
+                                await api.responderPropuestaCliente(
+                                  token: token,
+                                  solicitudId: detalle.id,
+                                  aprobada: false,
+                                  observacion: approvalController.text.trim(),
+                                );
+                                if (!sheetContext.mounted) return;
+                                await emergencyProvider.cargarDatos(token);
+                                if (!sheetContext.mounted) return;
+                                Navigator.of(sheetContext).pop();
+                              },
+                              child: const Text('Rechazar'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    if (candidatos.talleres.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      Text('Sugerencias de cobertura', style: Theme.of(context).textTheme.titleSmall),
+                      const SizedBox(height: 8),
+                      ...candidatos.talleres.take(3).map(
+                        (taller) => ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(taller.nombre),
+                          subtitle: Text(taller.motivoSugerencia ?? 'Cercanía y disponibilidad'),
+                          trailing: Text(taller.score?.toStringAsFixed(1) ?? '--'),
+                        ),
+                      ),
+                    ],
+                    if (detalle.estado == 'COMPLETADA' || detalle.estado == 'EN_ATENCION') ...[
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: amountController,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(
+                          labelText: 'Monto a pagar',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      FilledButton(
+                        onPressed: () async {
+                          await api.pagarSolicitud(
+                            token: token,
+                            solicitudId: detalle.id,
+                            montoTotal: double.tryParse(amountController.text) ?? 0,
+                            metodoPago: 'tarjeta',
+                          );
+                          if (!sheetContext.mounted) return;
+                          await emergencyProvider.cargarDatos(token);
+                          if (!sheetContext.mounted) return;
+                          Navigator.of(sheetContext).pop();
+                        },
+                        child: const Text('Registrar pago'),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: detailController,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        labelText: 'Detalle de disputa o soporte',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    FilledButton.tonal(
+                      onPressed: () async {
+                        if (detailController.text.trim().isEmpty) {
+                          return;
+                        }
+                        await api.crearDisputa(
+                          token: token,
+                          solicitudId: detalle.id,
+                          motivo: 'Soporte del cliente',
+                          detalle: detailController.text.trim(),
+                        );
+                        if (!sheetContext.mounted) return;
+                        await emergencyProvider.cargarDatos(token);
+                        if (!sheetContext.mounted) return;
+                        Navigator.of(sheetContext).pop();
+                      },
+                      child: const Text('Abrir disputa / soporte'),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 }
