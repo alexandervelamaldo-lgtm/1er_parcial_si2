@@ -4,6 +4,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
+import '../config/app_config.dart';
 import '../providers/emergency_provider.dart';
 import '../providers/session_provider.dart';
 import '../services/api_service.dart';
@@ -18,42 +19,71 @@ class RequestScreen extends StatefulWidget {
 
 
 class _RequestScreenState extends State<RequestScreen> {
-  static const Map<int, String> _tiposIncidente = {
-    1: 'Llanta ponchada',
-    2: 'Sin combustible',
-    3: 'Falla mecánica',
-    4: 'Accidente',
-    5: 'Bloqueo de tráfico',
-  };
-
   final _descriptionController = TextEditingController();
   final _evidenceNoteController = TextEditingController();
   bool _esCarretera = false;
   int _nivelRiesgo = 3;
   int? _vehiculoId;
-  int _tipoIncidenteId = 1;
+  int? _tipoIncidenteId;
+  List<TipoIncidenteOption> _tiposIncidente = [];
   XFile? _photo;
   String? _audioPath;
   String? _audioName;
   bool _sending = false;
+  bool _loadingCatalogs = true;
   String _gpsStatus = 'GPS pendiente';
+  String? _formNotice;
 
   @override
   Widget build(BuildContext context) {
     final emergencyProvider = context.watch<EmergencyProvider>();
+    final vehicles = emergencyProvider.vehiculos;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Nueva asistencia')),
-      body: ListView(
+      body: _loadingCatalogs
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          if (_formNotice != null) ...[
+            Card(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(_formNotice!),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+          if (vehicles.isEmpty) ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('No hay vehículos disponibles para crear la asistencia.'),
+                    const SizedBox(height: 8),
+                    const Text('Registra un vehículo primero o recarga tus datos de cliente.'),
+                    const SizedBox(height: 12),
+                    FilledButton.tonal(
+                      onPressed: _sending ? null : _bootstrapForm,
+                      child: const Text('Recargar vehículos'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
           DropdownButtonFormField<int>(
             initialValue: _vehiculoId,
             decoration: const InputDecoration(
               labelText: 'Vehículo',
               border: OutlineInputBorder(),
             ),
-            items: emergencyProvider.vehiculos
+            items: vehicles
                 .map(
                   (vehiculo) => DropdownMenuItem<int>(
                     value: vehiculo.id,
@@ -61,7 +91,7 @@ class _RequestScreenState extends State<RequestScreen> {
                   ),
                 )
                 .toList(),
-            onChanged: (value) => setState(() => _vehiculoId = value),
+            onChanged: vehicles.isEmpty ? null : (value) => setState(() => _vehiculoId = value),
           ),
           const SizedBox(height: 16),
           DropdownButtonFormField<int>(
@@ -70,16 +100,27 @@ class _RequestScreenState extends State<RequestScreen> {
               labelText: 'Tipo de incidente',
               border: OutlineInputBorder(),
             ),
-            items: _tiposIncidente.entries
+            items: _tiposIncidente
                 .map(
                   (entry) => DropdownMenuItem<int>(
-                    value: entry.key,
-                    child: Text(entry.value),
+                    value: entry.id,
+                    child: Text(entry.nombre),
                   ),
                 )
                 .toList(),
-            onChanged: (value) => setState(() => _tipoIncidenteId = value ?? 1),
+            onChanged: _tiposIncidente.isEmpty ? null : (value) => setState(() => _tipoIncidenteId = value),
           ),
+          if (_tipoIncidenteId != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _tiposIncidente
+                      .where((item) => item.id == _tipoIncidenteId)
+                      .map((item) => item.descripcion)
+                      .firstOrNull ??
+                  'Selecciona el tipo de incidente que mejor describa tu caso.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
           const SizedBox(height: 16),
           TextField(
             controller: _descriptionController,
@@ -140,6 +181,13 @@ class _RequestScreenState extends State<RequestScreen> {
             'Puedes enviar texto, foto y audio en una sola solicitud. El backend transcribe y analiza la evidencia automáticamente.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
+          const SizedBox(height: 8),
+          Text(
+            AppConfig.usesEmulatorLoopback
+                ? 'Configuración actual: emulador Android con backend en 10.0.2.2:8000.'
+                : 'Si usas un celular físico, compila con --dart-define=API_BASE_URL=http://TU_IP_LOCAL:8000.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
           const SizedBox(height: 16),
           FilledButton(
             onPressed: _sending ? null : _sendRequest,
@@ -154,6 +202,7 @@ class _RequestScreenState extends State<RequestScreen> {
   void initState() {
     super.initState();
     _refreshLocationStatus();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrapForm());
   }
 
   Future<void> _pickImage() async {
@@ -182,28 +231,87 @@ class _RequestScreenState extends State<RequestScreen> {
   }
 
   Future<void> _refreshLocationStatus() async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (mounted) {
+          setState(() => _gpsStatus = 'Activa el servicio de ubicación para enviar la asistencia');
+        }
+        return;
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          setState(() => _gpsStatus = 'Permiso GPS no concedido');
+        }
+        return;
+      }
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 12),
+        ),
+      );
       if (mounted) {
-        setState(() => _gpsStatus = 'Activa el servicio de ubicación para enviar la asistencia');
+        setState(() {
+          _gpsStatus = 'Última ubicación lista: ${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}';
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _gpsStatus = 'No se pudo obtener la ubicación actual');
+      }
+    }
+  }
+
+  Future<void> _bootstrapForm() async {
+    final sessionProvider = context.read<SessionProvider>();
+    final emergencyProvider = context.read<EmergencyProvider>();
+    final apiService = context.read<ApiService>();
+    final token = sessionProvider.token;
+    if (token == null) {
+      if (mounted) {
+        setState(() {
+          _loadingCatalogs = false;
+          _formNotice = 'La sesión expiró. Inicia sesión nuevamente.';
+        });
       }
       return;
     }
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-    if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
-      if (mounted) {
-        setState(() => _gpsStatus = 'Permiso GPS no concedido');
+    setState(() {
+      _loadingCatalogs = true;
+      _formNotice = null;
+    });
+    try {
+      await emergencyProvider.cargarDatos(token);
+      final tipos = await apiService.obtenerTiposIncidente(token);
+      final vehiculos = emergencyProvider.vehiculos;
+      if (!mounted) {
+        return;
       }
-      return;
-    }
-    final position = await Geolocator.getCurrentPosition();
-    if (mounted) {
       setState(() {
-        _gpsStatus = 'Última ubicación lista: ${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}';
+        _tiposIncidente = tipos;
+        _vehiculoId = vehiculos.isNotEmpty ? (_vehiculoId ?? vehiculos.first.id) : null;
+        _tipoIncidenteId = tipos.isNotEmpty ? (_tipoIncidenteId ?? tipos.first.id) : null;
+        if (vehiculos.isEmpty) {
+          _formNotice = 'Tu cuenta cliente no tiene vehículos cargados todavía.';
+        } else if (tipos.isEmpty) {
+          _formNotice = 'No hay tipos de incidente disponibles en el backend.';
+        }
       });
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _formNotice = error.toString().replaceFirst('Exception: ', '');
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _loadingCatalogs = false);
+      }
     }
   }
 
@@ -220,6 +328,10 @@ class _RequestScreenState extends State<RequestScreen> {
     }
     if (_vehiculoId == null) {
       messenger.showSnackBar(const SnackBar(content: Text('Selecciona un vehículo')));
+      return;
+    }
+    if (_tipoIncidenteId == null) {
+      messenger.showSnackBar(const SnackBar(content: Text('Selecciona un tipo de incidente válido')));
       return;
     }
     final clienteId = sessionProvider.profile?.clienteId;
@@ -239,7 +351,7 @@ class _RequestScreenState extends State<RequestScreen> {
             token: token,
             clienteId: clienteId,
             vehiculoId: _vehiculoId!,
-            tipoIncidenteId: _tipoIncidenteId,
+            tipoIncidenteId: _tipoIncidenteId!,
             descripcion: _descriptionController.text.trim(),
             latitud: position.latitude,
             longitud: position.longitude,
@@ -294,6 +406,11 @@ class _RequestScreenState extends State<RequestScreen> {
     if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
       throw Exception('No hay permiso de geolocalización para reportar la emergencia');
     }
-    return Geolocator.getCurrentPosition();
+    return Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        timeLimit: Duration(seconds: 12),
+      ),
+    );
   }
 }

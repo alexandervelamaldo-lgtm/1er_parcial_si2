@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 
@@ -9,6 +10,27 @@ import '../models/profile_data.dart';
 import '../models/solicitud.dart';
 import '../models/tecnico_cercano.dart';
 import '../models/vehiculo.dart';
+
+
+class TipoIncidenteOption {
+  TipoIncidenteOption({
+    required this.id,
+    required this.nombre,
+    required this.descripcion,
+  });
+
+  final int id;
+  final String nombre;
+  final String descripcion;
+
+  factory TipoIncidenteOption.fromJson(Map<String, dynamic> json) {
+    return TipoIncidenteOption(
+      id: json['id'] as int,
+      nombre: json['nombre'] as String? ?? 'Incidente',
+      descripcion: json['descripcion'] as String? ?? '',
+    );
+  }
+}
 
 
 class ApiService {
@@ -117,6 +139,20 @@ class ApiService {
     return data.map((item) => TecnicoCercano.fromJson(item as Map<String, dynamic>)).toList();
   }
 
+  Future<List<TipoIncidenteOption>> obtenerTiposIncidente(String token) async {
+    final response = await http
+        .get(
+          Uri.parse('${AppConfig.apiBaseUrl}/solicitudes/tipos-incidente'),
+          headers: _headers(token),
+        )
+        .timeout(const Duration(seconds: 15));
+    _ensureSuccess(response, 'No se pudieron cargar los tipos de incidente');
+    final data = jsonDecode(response.body) as List<dynamic>;
+    return data
+        .map((item) => TipoIncidenteOption.fromJson(item as Map<String, dynamic>))
+        .toList();
+  }
+
   Future<int> crearSolicitud({
     required String token,
     required int clienteId,
@@ -129,22 +165,34 @@ class ApiService {
     required int nivelRiesgo,
     String? fotoUrl,
   }) async {
-    final response = await http.post(
-      Uri.parse('${AppConfig.apiBaseUrl}/solicitudes'),
-      headers: _headers(token),
-      body: jsonEncode({
-        'cliente_id': clienteId,
-        'vehiculo_id': vehiculoId,
-        'tipo_incidente_id': tipoIncidenteId,
-        'latitud_incidente': latitud,
-        'longitud_incidente': longitud,
-        'descripcion': descripcion,
-        'foto_url': fotoUrl,
-        'es_carretera': esCarretera,
-        'condicion_vehiculo': 'Operativo con limitaciones',
-        'nivel_riesgo': nivelRiesgo,
-      }),
-    );
+    late http.Response response;
+    try {
+      response = await http
+          .post(
+            Uri.parse('${AppConfig.apiBaseUrl}/solicitudes'),
+            headers: _headers(token),
+            body: jsonEncode({
+              'cliente_id': clienteId,
+              'vehiculo_id': vehiculoId,
+              'tipo_incidente_id': tipoIncidenteId,
+              'latitud_incidente': latitud,
+              'longitud_incidente': longitud,
+              'descripcion': descripcion,
+              'foto_url': fotoUrl,
+              'es_carretera': esCarretera,
+              'condicion_vehiculo': 'Operativo con limitaciones',
+              'nivel_riesgo': nivelRiesgo,
+            }),
+          )
+          .timeout(const Duration(seconds: 20));
+    } on SocketException {
+      throw Exception(
+        'No se pudo conectar con el backend móvil. Si usas emulador mantén API_BASE_URL en 10.0.2.2. '
+        'Si usas celular físico recompila con --dart-define=API_BASE_URL=http://TU_IP_LOCAL:8000',
+      );
+    } on TimeoutException {
+      throw Exception('El backend tardó demasiado en responder al crear la solicitud');
+    }
 
     _ensureSuccess(response, 'No se pudo crear la solicitud');
     final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -268,6 +316,21 @@ class ApiService {
 
   void _ensureSuccess(http.Response response, String message) {
     if (response.statusCode >= 400) {
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) {
+          final detail = decoded['detail'] ?? decoded['message'];
+          if (detail is String && detail.trim().isNotEmpty) {
+            throw Exception(detail);
+          }
+          if (detail is List && detail.isNotEmpty) {
+            final first = detail.first;
+            if (first is Map<String, dynamic> && first['msg'] is String) {
+              throw Exception(first['msg'] as String);
+            }
+          }
+        }
+      } catch (_) {}
       throw Exception(message);
     }
   }

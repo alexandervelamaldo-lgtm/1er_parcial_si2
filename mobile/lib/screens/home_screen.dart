@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
 
+import '../config/app_config.dart';
 import '../providers/emergency_provider.dart';
 import '../providers/session_provider.dart';
 import 'history_screen.dart';
@@ -141,19 +142,49 @@ class _DashboardTab extends StatelessWidget {
             const SizedBox(height: 12),
             SizedBox(
               height: 250,
-              child: GoogleMap(
-                initialCameraPosition: const CameraPosition(
-                  target: LatLng(19.4326, -99.1332),
-                  zoom: 11,
-                ),
-                markers: {
-                  const Marker(
-                    markerId: MarkerId('centro'),
-                    position: LatLng(19.4326, -99.1332),
-                    infoWindow: InfoWindow(title: 'Zona de cobertura'),
-                  ),
-                },
-              ),
+              child: AppConfig.enableGoogleMaps
+                  ? GoogleMap(
+                      initialCameraPosition: const CameraPosition(
+                        target: LatLng(19.4326, -99.1332),
+                        zoom: 11,
+                      ),
+                      markers: {
+                        const Marker(
+                          markerId: MarkerId('centro'),
+                          position: LatLng(19.4326, -99.1332),
+                          infoWindow: InfoWindow(title: 'Zona de cobertura'),
+                        ),
+                      },
+                    )
+                  : Card(
+                      child: Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.map_outlined,
+                                size: 40,
+                                color: theme.colorScheme.primary,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'Mapa deshabilitado en esta compilación',
+                                style: theme.textTheme.titleMedium,
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'La app sigue funcionando para solicitudes, historial, notificaciones y seguimiento.',
+                                style: theme.textTheme.bodyMedium,
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
             ),
             const SizedBox(height: 16),
             Text('Últimas solicitudes', style: theme.textTheme.titleLarge),
