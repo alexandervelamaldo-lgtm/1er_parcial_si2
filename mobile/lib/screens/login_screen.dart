@@ -79,11 +79,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _submit() async {
     final sessionProvider = context.read<SessionProvider>();
+    setState(() => _errorMessage = null);
     try {
-      // Se delega la autenticación al provider para centralizar el token.
       await sessionProvider.login(_emailController.text.trim(), _passwordController.text.trim());
-    } catch (_) {
-      setState(() => _errorMessage = 'Credenciales inválidas o backend no disponible.');
+    } catch (error) {
+      final message = error.toString().replaceFirst('Exception: ', '').trim();
+      setState(() => _errorMessage = message.isNotEmpty ? message : 'No fue posible iniciar sesión.');
     }
   }
 }

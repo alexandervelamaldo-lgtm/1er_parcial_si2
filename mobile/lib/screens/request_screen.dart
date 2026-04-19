@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:record/record.dart';
 
 import '../config/app_config.dart';
 import '../providers/emergency_provider.dart';
@@ -21,18 +24,30 @@ class RequestScreen extends StatefulWidget {
 class _RequestScreenState extends State<RequestScreen> {
   final _descriptionController = TextEditingController();
   final _evidenceNoteController = TextEditingController();
+  final ImagePicker _imagePicker = ImagePicker();
+  final AudioRecorder _audioRecorder = AudioRecorder();
   bool _esCarretera = false;
   int _nivelRiesgo = 3;
   int? _vehiculoId;
   int? _tipoIncidenteId;
   List<TipoIncidenteOption> _tiposIncidente = [];
-  XFile? _photo;
+  String? _photoPath;
+  String? _photoName;
   String? _audioPath;
   String? _audioName;
+  bool _recordingAudio = false;
   bool _sending = false;
   bool _loadingCatalogs = true;
   String _gpsStatus = 'GPS pendiente';
   String? _formNotice;
+
+  @override
+  void dispose() {
+    _descriptionController.dispose();
+    _evidenceNoteController.dispose();
+    _audioRecorder.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -169,13 +184,38 @@ class _RequestScreenState extends State<RequestScreen> {
           const SizedBox(height: 8),
           FilledButton.tonal(
             onPressed: _pickImage,
-            child: Text(_photo == null ? 'Adjuntar foto' : 'Foto seleccionada: ${_photo!.name}'),
+            child: Text(_photoName == null ? 'Adjuntar foto' : 'Foto seleccionada: $_photoName'),
           ),
           const SizedBox(height: 16),
           FilledButton.tonal(
             onPressed: _pickAudio,
-            child: Text(_audioName == null ? 'Adjuntar audio' : 'Audio seleccionado: $_audioName'),
+            child: Text(_audioName == null ? 'Adjuntar audio (archivo)' : 'Audio seleccionado: $_audioName'),
           ),
+          const SizedBox(height: 12),
+          FilledButton.tonal(
+            onPressed: _sending ? null : _toggleRecording,
+            child: Text(_recordingAudio ? 'Detener grabación' : 'Grabar nota de voz'),
+          ),
+          if (_audioPath != null) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.tonal(
+                    onPressed: _sending ? null : _playRecordedAudio,
+                    child: const Text('Reproducir'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton.tonal(
+                    onPressed: _sending ? null : _clearAudio,
+                    child: const Text('Eliminar'),
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 12),
           Text(
             'Puedes enviar texto, foto y audio en una sola solicitud. El backend transcribe y analiza la evidencia automáticamente.',
@@ -184,8 +224,8 @@ class _RequestScreenState extends State<RequestScreen> {
           const SizedBox(height: 8),
           Text(
             AppConfig.usesEmulatorLoopback
-                ? 'Configuración actual: emulador Android con backend en 10.0.2.2:8000.'
-                : 'Si usas un celular físico, compila con --dart-define=API_BASE_URL=http://TU_IP_LOCAL:8000.',
+                ? 'Configuración actual: emulador Android con backend en 10.0.2.2:8001.'
+                : 'Si usas un celular físico, compila con --dart-define=API_BASE_URL=http://TU_IP_LOCAL:8001.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 16),
@@ -206,12 +246,45 @@ class _RequestScreenState extends State<RequestScreen> {
   }
 
   Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    final result = await picker.pickImage(source: ImageSource.camera);
-    if (result == null) {
+    final source = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Tomar foto'),
+              onTap: () => Navigator.pop(context, 'camera'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Elegir de galería'),
+              onTap: () => Navigator.pop(context, 'gallery'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.attach_file_outlined),
+              title: const Text('Elegir desde archivos'),
+              onTap: () => Navigator.pop(context, 'files'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || source == null) {
       return;
     }
-    setState(() => _photo = result);
+    switch (source) {
+      case 'camera':
+        await _pickImageFromCamera();
+        return;
+      case 'gallery':
+        await _pickImageFromGallery();
+        return;
+      case 'files':
+        await _pickImageFromFiles();
+        return;
+    }
   }
 
   Future<void> _pickAudio() async {
@@ -227,6 +300,63 @@ class _RequestScreenState extends State<RequestScreen> {
     setState(() {
       _audioPath = file!.path;
       _audioName = file.name;
+    });
+  }
+
+  Future<void> _toggleRecording() async {
+    final messenger = ScaffoldMessenger.of(context);
+    if (_recordingAudio) {
+      final path = await _audioRecorder.stop();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _recordingAudio = false;
+        if (path != null) {
+          _audioPath = path;
+          _audioName = path.split('/').last;
+        }
+      });
+      return;
+    }
+
+    final hasPermission = await _audioRecorder.hasPermission();
+    if (!hasPermission) {
+      if (mounted) {
+        messenger.showSnackBar(const SnackBar(content: Text('Permiso de micrófono no concedido')));
+      }
+      return;
+    }
+
+    final directory = await getTemporaryDirectory();
+    final targetPath = '${directory.path}/nota_voz_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    await _audioRecorder.start(
+      const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 128000, sampleRate: 44100),
+      path: targetPath,
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _recordingAudio = true;
+      _audioPath = targetPath;
+      _audioName = targetPath.split('/').last;
+    });
+  }
+
+  Future<void> _playRecordedAudio() async {
+    final path = _audioPath;
+    if (path == null) {
+      return;
+    }
+    await OpenFilex.open(path);
+  }
+
+  void _clearAudio() {
+    setState(() {
+      _recordingAudio = false;
+      _audioPath = null;
+      _audioName = null;
     });
   }
 
@@ -345,9 +475,10 @@ class _RequestScreenState extends State<RequestScreen> {
     }
 
     setState(() => _sending = true);
+    int? solicitudId;
     try {
       final position = await _resolvePosition();
-      final solicitudId = await apiService.crearSolicitud(
+      solicitudId = await apiService.crearSolicitud(
             token: token,
             clienteId: clienteId,
             vehiculoId: _vehiculoId!,
@@ -357,41 +488,156 @@ class _RequestScreenState extends State<RequestScreen> {
             longitud: position.longitude,
             esCarretera: _esCarretera,
             nivelRiesgo: _nivelRiesgo,
-            fotoUrl: _photo?.path,
           );
-      if (_photo != null) {
-        await apiService.subirEvidenciaArchivo(
-              token: token,
-              solicitudId: solicitudId,
-              filePath: _photo!.path,
-            );
+      final evidenciasAdjuntas = <String>[];
+      final evidenciasFallidas = <String>[];
+      if (_photoPath != null) {
+        await _adjuntarEvidencia(
+          etiqueta: 'foto',
+          onUpload: () => apiService.subirEvidenciaArchivo(
+            token: token,
+            solicitudId: solicitudId!,
+            filePath: _photoPath!,
+          ),
+          ok: evidenciasAdjuntas,
+          fail: evidenciasFallidas,
+        );
       }
       if (_audioPath != null) {
-        await apiService.subirEvidenciaArchivo(
-              token: token,
-              solicitudId: solicitudId,
-              filePath: _audioPath!,
-            );
+        await _adjuntarEvidencia(
+          etiqueta: 'audio',
+          onUpload: () => apiService.subirEvidenciaArchivo(
+            token: token,
+            solicitudId: solicitudId!,
+            filePath: _audioPath!,
+          ),
+          ok: evidenciasAdjuntas,
+          fail: evidenciasFallidas,
+        );
       }
       if (_evidenceNoteController.text.trim().isNotEmpty) {
-        await apiService.subirEvidenciaTexto(
-              token: token,
-              solicitudId: solicitudId,
-              contenido: _evidenceNoteController.text.trim(),
-            );
+        await _adjuntarEvidencia(
+          etiqueta: 'nota',
+          onUpload: () => apiService.subirEvidenciaTexto(
+            token: token,
+            solicitudId: solicitudId!,
+            contenido: _evidenceNoteController.text.trim(),
+          ),
+          ok: evidenciasAdjuntas,
+          fail: evidenciasFallidas,
+        );
       }
       await emergencyProvider.cargarDatos(token);
-      messenger.showSnackBar(const SnackBar(content: Text('Solicitud creada correctamente')));
+      if (!mounted) {
+        return;
+      }
+      await _showSubmissionResult(
+        solicitudId: solicitudId,
+        evidenciasAdjuntas: evidenciasAdjuntas,
+        evidenciasFallidas: evidenciasFallidas,
+      );
       if (mounted) {
         Navigator.pop(context);
       }
     } catch (error) {
-      messenger.showSnackBar(SnackBar(content: Text(error.toString().replaceFirst('Exception: ', ''))));
+      final message = error.toString().replaceFirst('Exception: ', '');
+      if (solicitudId != null) {
+        messenger.showSnackBar(
+          SnackBar(content: Text('La solicitud #$solicitudId se creó, pero hubo un problema al adjuntar evidencias: $message')),
+        );
+        if (mounted) {
+          Navigator.pop(context);
+        }
+        return;
+      }
+      messenger.showSnackBar(SnackBar(content: Text(message)));
     } finally {
       if (mounted) {
         setState(() => _sending = false);
       }
     }
+  }
+
+  Future<void> _pickImageFromCamera() async {
+    final result = await _imagePicker.pickImage(source: ImageSource.camera);
+    if (result == null) {
+      return;
+    }
+    _setPhotoSelection(result.path, result.name);
+  }
+
+  Future<void> _pickImageFromGallery() async {
+    final result = await _imagePicker.pickImage(source: ImageSource.gallery);
+    if (result == null) {
+      return;
+    }
+    _setPhotoSelection(result.path, result.name);
+  }
+
+  Future<void> _pickImageFromFiles() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['jpg', 'jpeg', 'png', 'webp'],
+      withData: false,
+    );
+    final file = result?.files.single;
+    if (file?.path == null) {
+      return;
+    }
+    _setPhotoSelection(file!.path!, file.name);
+  }
+
+  void _setPhotoSelection(String path, String name) {
+    setState(() {
+      _photoPath = path;
+      _photoName = name;
+    });
+  }
+
+  Future<void> _adjuntarEvidencia({
+    required String etiqueta,
+    required Future<void> Function() onUpload,
+    required List<String> ok,
+    required List<String> fail,
+  }) async {
+    try {
+      await onUpload();
+      ok.add(etiqueta);
+    } catch (error) {
+      final message = error.toString().replaceFirst('Exception: ', '').trim();
+      fail.add(message.isNotEmpty ? '$etiqueta: $message' : etiqueta);
+    }
+  }
+
+  Future<void> _showSubmissionResult({
+    required int solicitudId,
+    required List<String> evidenciasAdjuntas,
+    required List<String> evidenciasFallidas,
+  }) async {
+    final title = evidenciasFallidas.isEmpty
+        ? 'Solicitud creada'
+        : 'Solicitud creada con observaciones';
+    final summary = <String>[
+      'La solicitud #$solicitudId fue registrada correctamente.',
+      if (evidenciasAdjuntas.isNotEmpty)
+        'Evidencias adjuntadas: ${evidenciasAdjuntas.join(', ')}.',
+      if (evidenciasFallidas.isNotEmpty)
+        'No se pudieron adjuntar: ${evidenciasFallidas.join('; ')}.',
+    ].join('\n');
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(summary),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Aceptar'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<Position> _resolvePosition() async {

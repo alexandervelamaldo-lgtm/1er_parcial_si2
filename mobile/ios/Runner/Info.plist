@@ -22,6 +22,8 @@
 	<string>$(FLUTTER_BUILD_NAME)</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Se requiere acceso al micrófono para grabar notas de voz en la solicitud.</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>

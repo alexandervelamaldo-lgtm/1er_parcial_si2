@@ -48,6 +48,13 @@ mobile/    App Flutter para clientes
 19. Gestionar clientes
 20. Cerrar caso
 21. Priorización inteligente del incidente
+22. Cierre técnico del servicio (trabajo realizado + costo final en Bs)
+23. Pago final del cliente (confirmación de pago) y cierre automático a `COMPLETADA`
+24. Factura PDF por solicitud (descarga desde web y app móvil)
+25. Sección web "Trabajos realizados" con resumen y exportación PDF/CSV
+26. Transcripción automática de audio del cliente y notificación a OPERADOR/ADMIN
+27. App móvil: ver factura PDF directamente (descarga y apertura)
+28. App móvil: grabación y envío de nota de voz desde la solicitud
 
 ## Requisitos previos
 
@@ -206,13 +213,13 @@ flutter pub get
 Ejecución:
 
 ```bash
-flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8001
 ```
 
 Generación de APK:
 
 ```bash
-flutter build apk --release --dart-define=API_BASE_URL=http://10.0.2.2:8000
+flutter build apk --release --dart-define=API_BASE_URL=https://emergency-backend-ea41.onrender.com
 ```
 
 ## Docker
@@ -233,13 +240,20 @@ Notas:
 
 ### Backend
 
-- Archivo: [render.yaml](file:///c:/Users/ALEXANDER/OneDrive/Escritorio/si2_1erexa/render.yaml)
+- Archivo: [render.yaml](file:///c:/Users/ALEXANDER/OneDrive/Escritorio/si2_1erexa/backend/render.yaml)
 - También puede desplegarse con Railway o cualquier runtime Docker
 
 ### Frontend
 
-- Vercel o Netlify
-- Cambiar `apiUrl` al dominio público del backend
+- Netlify
+  - Build: `npm ci && npm run build`
+  - Publish: `dist/frontend/browser`
+  - Configuración incluida en `frontend/netlify.toml` y `frontend/public/_redirects`
+- Vercel
+  - Build: `npm ci && npm run build`
+  - Output: `dist/frontend/browser` (o `dist/frontend` según la detección del framework)
+- Cambiar `apiUrl` del frontend en `frontend/src/environments/environment.prod.ts` al dominio público del backend (Render)
+- En backend (Render): configurar CORS para permitir el dominio del frontend (por ejemplo `^https://.*\\.netlify\\.app$` o el dominio exacto)
 
 ### Base de datos
 

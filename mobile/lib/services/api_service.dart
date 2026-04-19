@@ -1,8 +1,10 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import '../config/app_config.dart';
 import '../models/notification_item.dart';
@@ -34,17 +36,39 @@ class TipoIncidenteOption {
 
 
 class ApiService {
+  static const Duration _cloudLoginTimeout = Duration(seconds: 45);
+
   Future<String> login({
     required String email,
     required String password,
   }) async {
-    final response = await http.post(
-      Uri.parse('${AppConfig.apiBaseUrl}/auth/login'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'email': email, 'password': password}),
-    );
+    http.Response response;
+    try {
+      response = await http
+          .post(
+            Uri.parse('${AppConfig.apiBaseUrl}/auth/login'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'email': email, 'password': password}),
+          )
+          .timeout(_cloudLoginTimeout);
+    } on SocketException {
+      throw Exception(
+        'No se pudo conectar con el backend móvil. Si usas emulador Android usa ${AppConfig.apiBaseUrl}. '
+        'Si usas celular físico recompila con --dart-define=API_BASE_URL=http://TU_IP_LOCAL:8001',
+      );
+    } on TimeoutException {
+      throw Exception(
+        'El backend tardó demasiado en responder al iniciar sesión. '
+        'Si Render estaba en reposo, espera unos segundos e intenta otra vez.',
+      );
+    }
 
     if (response.statusCode >= 400) {
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      final detail = body['detail'];
+      if (detail is String && detail.isNotEmpty) {
+        throw Exception(detail);
+      }
       throw Exception('No fue posible iniciar sesión');
     }
 
@@ -163,7 +187,6 @@ class ApiService {
     required double longitud,
     required bool esCarretera,
     required int nivelRiesgo,
-    String? fotoUrl,
   }) async {
     late http.Response response;
     try {
@@ -178,7 +201,6 @@ class ApiService {
               'latitud_incidente': latitud,
               'longitud_incidente': longitud,
               'descripcion': descripcion,
-              'foto_url': fotoUrl,
               'es_carretera': esCarretera,
               'condicion_vehiculo': 'Operativo con limitaciones',
               'nivel_riesgo': nivelRiesgo,
@@ -188,7 +210,7 @@ class ApiService {
     } on SocketException {
       throw Exception(
         'No se pudo conectar con el backend móvil. Si usas emulador mantén API_BASE_URL en 10.0.2.2. '
-        'Si usas celular físico recompila con --dart-define=API_BASE_URL=http://TU_IP_LOCAL:8000',
+        'Si usas celular físico recompila con --dart-define=API_BASE_URL=http://TU_IP_LOCAL:8001',
       );
     } on TimeoutException {
       throw Exception('El backend tardó demasiado en responder al crear la solicitud');
@@ -236,7 +258,13 @@ class ApiService {
           Uri.parse('${AppConfig.apiBaseUrl}/solicitudes/$solicitudId/evidencias/archivo'),
         );
         request.headers['Authorization'] = 'Bearer $token';
-        request.files.add(await http.MultipartFile.fromPath('archivo', file.path));
+        request.files.add(
+          await http.MultipartFile.fromPath(
+            'archivo',
+            file.path,
+            contentType: _resolveMediaType(file.path),
+          ),
+        );
         final response = await http.Response.fromStream(await request.send());
         _ensureSuccess(response, 'No se pudo enviar la evidencia');
         return;
@@ -250,8 +278,11 @@ class ApiService {
   Future<void> pagarSolicitud({
     required String token,
     required int solicitudId,
-    required double montoTotal,
+    required double? montoTotal,
     required String metodoPago,
+    bool confirmarPago = true,
+    String? referenciaExterna,
+    String? observacion,
   }) async {
     final response = await http.post(
       Uri.parse('${AppConfig.apiBaseUrl}/solicitudes/$solicitudId/pago'),
@@ -259,9 +290,35 @@ class ApiService {
       body: jsonEncode({
         'monto_total': montoTotal,
         'metodo_pago': metodoPago,
+        'confirmar_pago': confirmarPago,
+        'referencia_externa': referenciaExterna,
+        'observacion': observacion,
       }),
     );
     _ensureSuccess(response, 'No se pudo registrar el pago');
+  }
+
+  String obtenerFacturaUrl({
+    required String token,
+    required int solicitudId,
+  }) {
+    final encodedToken = Uri.encodeQueryComponent(token);
+    return '${AppConfig.apiBaseUrl}/solicitudes/$solicitudId/factura.pdf?access_token=$encodedToken';
+  }
+
+  Future<Uint8List> descargarFacturaPdf({
+    required String token,
+    required int solicitudId,
+  }) async {
+    final response = await http.get(
+      Uri.parse('${AppConfig.apiBaseUrl}/solicitudes/$solicitudId/factura.pdf'),
+      headers: {
+        ..._headers(token),
+        'Accept': 'application/pdf',
+      },
+    );
+    _ensureSuccess(response, 'No se pudo descargar la factura');
+    return response.bodyBytes;
   }
 
   Future<void> crearDisputa({
@@ -339,6 +396,19 @@ class ApiService {
     return {
       'Content-Type': 'application/json',
       'Authorization': 'Bearer $token',
+    };
+  }
+
+  MediaType _resolveMediaType(String filePath) {
+    final extension = filePath.split('.').last.toLowerCase();
+    return switch (extension) {
+      'jpg' || 'jpeg' => MediaType('image', 'jpeg'),
+      'png' => MediaType('image', 'png'),
+      'webp' => MediaType('image', 'webp'),
+      'mp3' => MediaType('audio', 'mpeg'),
+      'wav' => MediaType('audio', 'wav'),
+      'm4a' => MediaType('audio', 'mp4'),
+      _ => MediaType('application', 'octet-stream'),
     };
   }
 }

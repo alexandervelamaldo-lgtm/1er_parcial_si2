@@ -15,6 +15,19 @@ class Solicitud {
     this.proveedorIa,
     this.clienteAprobada,
     this.propuestaExpiraEn,
+    this.esCarretera = false,
+    this.condicionVehiculo,
+    this.nivelRiesgo,
+    this.costoEstimado,
+    this.costoEstimadoMin,
+    this.costoEstimadoMax,
+    this.costoEstimacionConfianza,
+    this.costoEstimacionNota,
+    this.costoFinal,
+    this.monedaCosto = 'BOB',
+    this.trabajoTerminado = false,
+    this.trabajoTerminadoEn,
+    this.trabajoTerminadoObservacion,
     this.tallerId,
     this.tecnicoId,
   });
@@ -34,6 +47,19 @@ class Solicitud {
   final String? proveedorIa;
   final bool? clienteAprobada;
   final String? propuestaExpiraEn;
+  final bool esCarretera;
+  final String? condicionVehiculo;
+  final int? nivelRiesgo;
+  final double? costoEstimado;
+  final double? costoEstimadoMin;
+  final double? costoEstimadoMax;
+  final double? costoEstimacionConfianza;
+  final String? costoEstimacionNota;
+  final double? costoFinal;
+  final String monedaCosto;
+  final bool trabajoTerminado;
+  final String? trabajoTerminadoEn;
+  final String? trabajoTerminadoObservacion;
   final int? tallerId;
   final int? tecnicoId;
 
@@ -54,6 +80,19 @@ class Solicitud {
       proveedorIa: json['proveedor_ia'] as String?,
       clienteAprobada: json['cliente_aprobada'] as bool?,
       propuestaExpiraEn: json['propuesta_expira_en'] as String?,
+      esCarretera: json['es_carretera'] as bool? ?? false,
+      condicionVehiculo: json['condicion_vehiculo'] as String?,
+      nivelRiesgo: json['nivel_riesgo'] as int?,
+      costoEstimado: (json['costo_estimado'] as num?)?.toDouble(),
+      costoEstimadoMin: (json['costo_estimado_min'] as num?)?.toDouble(),
+      costoEstimadoMax: (json['costo_estimado_max'] as num?)?.toDouble(),
+      costoEstimacionConfianza: (json['costo_estimacion_confianza'] as num?)?.toDouble(),
+      costoEstimacionNota: json['costo_estimacion_nota'] as String?,
+      costoFinal: (json['costo_final'] as num?)?.toDouble(),
+      monedaCosto: json['moneda_costo'] as String? ?? 'BOB',
+      trabajoTerminado: json['trabajo_terminado'] as bool? ?? false,
+      trabajoTerminadoEn: json['trabajo_terminado_en'] as String?,
+      trabajoTerminadoObservacion: json['trabajo_terminado_observacion'] as String?,
       tallerId: json['taller_id'] as int?,
       tecnicoId: json['tecnico_id'] as int?,
     );
@@ -77,6 +116,19 @@ class SolicitudDetalle extends Solicitud {
     super.proveedorIa,
     super.clienteAprobada,
     super.propuestaExpiraEn,
+    super.esCarretera,
+    super.condicionVehiculo,
+    super.nivelRiesgo,
+    super.costoEstimado,
+    super.costoEstimadoMin,
+    super.costoEstimadoMax,
+    super.costoEstimacionConfianza,
+    super.costoEstimacionNota,
+    super.costoFinal,
+    super.monedaCosto,
+    super.trabajoTerminado,
+    super.trabajoTerminadoEn,
+    super.trabajoTerminadoObservacion,
     super.tallerId,
     super.tecnicoId,
     required this.evidencias,
@@ -108,6 +160,19 @@ class SolicitudDetalle extends Solicitud {
       proveedorIa: base.proveedorIa,
       clienteAprobada: base.clienteAprobada,
       propuestaExpiraEn: base.propuestaExpiraEn,
+      esCarretera: base.esCarretera,
+      condicionVehiculo: base.condicionVehiculo,
+      nivelRiesgo: base.nivelRiesgo,
+      costoEstimado: base.costoEstimado,
+      costoEstimadoMin: base.costoEstimadoMin,
+      costoEstimadoMax: base.costoEstimadoMax,
+      costoEstimacionConfianza: base.costoEstimacionConfianza,
+      costoEstimacionNota: base.costoEstimacionNota,
+      costoFinal: base.costoFinal,
+      monedaCosto: base.monedaCosto,
+      trabajoTerminado: base.trabajoTerminado,
+      trabajoTerminadoEn: base.trabajoTerminadoEn,
+      trabajoTerminadoObservacion: base.trabajoTerminadoObservacion,
       tallerId: base.tallerId,
       tecnicoId: base.tecnicoId,
       evidencias: (json['evidencias'] as List<dynamic>? ?? [])
@@ -286,20 +351,29 @@ class EvidenciaSolicitud {
 
 class PagoSolicitud {
   PagoSolicitud({
+    required this.metodoPago,
     required this.estado,
     required this.montoTotal,
     required this.montoComision,
+    this.referenciaExterna,
+    this.observacion,
   });
 
+  final String metodoPago;
   final String estado;
   final double montoTotal;
   final double montoComision;
+  final String? referenciaExterna;
+  final String? observacion;
 
   factory PagoSolicitud.fromJson(Map<String, dynamic> json) {
     return PagoSolicitud(
+      metodoPago: json['metodo_pago'] as String? ?? 'sin método',
       estado: json['estado'] as String? ?? 'PENDIENTE',
       montoTotal: (json['monto_total'] as num?)?.toDouble() ?? 0,
       montoComision: (json['monto_comision'] as num?)?.toDouble() ?? 0,
+      referenciaExterna: json['referencia_externa'] as String?,
+      observacion: json['observacion'] as String?,
     );
   }
 }
