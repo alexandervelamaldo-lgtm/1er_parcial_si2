@@ -54,7 +54,7 @@ class ApiService {
     } on SocketException {
       throw Exception(
         'No se pudo conectar con el backend móvil. Si usas emulador Android usa ${AppConfig.apiBaseUrl}. '
-        'Si usas celular físico recompila con --dart-define=API_BASE_URL=http://TU_IP_LOCAL:8001',
+        'Si usas celular físico recompila con --dart-define=API_BASE_URL=http://TU_IP_LOCAL:8000',
       );
     } on TimeoutException {
       throw Exception(
@@ -210,7 +210,7 @@ class ApiService {
     } on SocketException {
       throw Exception(
         'No se pudo conectar con el backend móvil. Si usas emulador mantén API_BASE_URL en 10.0.2.2. '
-        'Si usas celular físico recompila con --dart-define=API_BASE_URL=http://TU_IP_LOCAL:8001',
+        'Si usas celular físico recompila con --dart-define=API_BASE_URL=http://TU_IP_LOCAL:8000',
       );
     } on TimeoutException {
       throw Exception('El backend tardó demasiado en responder al crear la solicitud');

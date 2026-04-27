@@ -224,8 +224,8 @@ class _RequestScreenState extends State<RequestScreen> {
           const SizedBox(height: 8),
           Text(
             AppConfig.usesEmulatorLoopback
-                ? 'Configuración actual: emulador Android con backend en 10.0.2.2:8001.'
-                : 'Si usas un celular físico, compila con --dart-define=API_BASE_URL=http://TU_IP_LOCAL:8001.',
+                ? 'Configuración actual: emulador Android con backend en 10.0.2.2:8000.'
+                : 'Si usas un celular físico, compila con --dart-define=API_BASE_URL=http://TU_IP_LOCAL:8000.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 16),

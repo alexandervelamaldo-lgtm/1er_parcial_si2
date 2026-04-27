@@ -6,7 +6,7 @@ class AppConfig {
     'API_BASE_URL',
     defaultValue: kReleaseMode
         ? 'https://emergency-backend-ea41.onrender.com'
-        : 'http://10.0.2.2:8001',
+        : 'http://10.0.2.2:8000',
   );
 
   static const bool enableGoogleMaps = bool.fromEnvironment(
